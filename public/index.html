@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bolso — seu assessor de gastos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E2A23;         /* fundo verde-tinta */
+  --ink-2:#123529;
+  --paper:#FBF9F4;       /* papel de cupom */
+  --paper-dim:#EFEAE0;
+  --grana:#2F9E68;       /* verde cédula */
+  --alerta:#E4574C;
+  --texto:#E9F2ED;
+  --texto-dim:#9DB8AD;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:'Sora',sans-serif;
+  background:var(--ink);
+  color:var(--texto);
+  display:flex;flex-direction:column;
+  height:100dvh;
+  overscroll-behavior:none;
+}
+
+/* ===== Painel do caixa (header) ===== */
+header{
+  padding:14px 18px 12px;
+  background:linear-gradient(180deg,var(--ink-2),var(--ink));
+  border-bottom:1px solid rgba(255,255,255,.07);
+  flex-shrink:0;
+}
+.marca{display:flex;align-items:baseline;gap:8px}
+.marca h1{font-weight:800;font-size:17px;letter-spacing:-.02em}
+.marca span{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--texto-dim);text-transform:uppercase;letter-spacing:.12em}
+.visor{display:flex;gap:22px;margin-top:10px}
+.visor .bloco small{display:block;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--texto-dim);text-transform:uppercase;letter-spacing:.14em;margin-bottom:2px}
+.visor .bloco strong{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:var(--grana);font-variant-numeric:tabular-nums}
+.visor .bloco.mes strong{color:var(--texto)}
+
+/* ===== Chat ===== */
+#chat{
+  flex:1;overflow-y:auto;
+  padding:16px 14px 8px;
+  display:flex;flex-direction:column;gap:10px;
+  scroll-behavior:smooth;
+}
+.msg{max-width:86%;line-height:1.45;font-size:14.5px;animation:pop .18s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.msg{animation:none}}
+.msg.eu{
+  align-self:flex-end;
+  background:var(--grana);color:#08221A;
+  padding:9px 13px;border-radius:16px 16px 4px 16px;
+  font-weight:600;
+}
+.msg.bot{
+  align-self:flex-start;
+  background:rgba(255,255,255,.06);
+  padding:10px 13px;border-radius:16px 16px 16px 4px;
+  border:1px solid rgba(255,255,255,.06);
+  white-space:pre-wrap;
+}
+.msg.eu img{max-width:180px;border-radius:10px;display:block}
+
+/* ===== Cupom (assinatura visual) ===== */
+.cupom{
+  align-self:flex-start;
+  background:var(--paper);color:#1B1B18;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:12.5px;line-height:1.5;
+  padding:12px 14px 6px;
+  width:min(86%,300px);
+  border-radius:3px;
+  box-shadow:0 3px 10px rgba(0,0,0,.35);
+  position:relative;
+  animation:pop .18s ease-out;
+}
+.cupom::after{
+  content:"";display:block;height:10px;margin:8px -14px 0;
+  background:
+    linear-gradient(-45deg,transparent 66%,var(--ink) 67%) 0 100%/12px 10px repeat-x,
+    linear-gradient(45deg,transparent 66%,var(--ink) 67%) 0 100%/12px 10px repeat-x;
+  background-color:var(--paper);
+}
+.cupom .cab{text-transform:uppercase;letter-spacing:.1em;font-size:10px;color:#8A8578;border-bottom:1px dashed #C9C2B2;padding-bottom:5px;margin-bottom:6px;display:flex;justify-content:space-between}
+.cupom .linha{display:flex;justify-content:space-between;gap:10px}
+.cupom .linha .nome{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cupom .total{border-top:1px dashed #C9C2B2;margin-top:6px;padding-top:5px;display:flex;justify-content:space-between;font-weight:700}
+.cupom .cat{font-size:10px;color:#8A8578;text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+
+.digitando{align-self:flex-start;color:var(--texto-dim);font-size:13px;padding:4px 6px;font-family:'IBM Plex Mono',monospace}
+
+/* ===== Atalhos ===== */
+#chips{display:flex;gap:8px;padding:6px 14px;overflow-x:auto;flex-shrink:0;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+.chip{
+  flex-shrink:0;background:none;border:1px solid rgba(255,255,255,.18);
+  color:var(--texto);font-family:'IBM Plex Mono',monospace;font-size:11.5px;
+  padding:6px 12px;border-radius:999px;cursor:pointer;
+}
+.chip:active{background:rgba(255,255,255,.1)}
+
+/* ===== Barra de entrada ===== */
+#barra{
+  display:flex;align-items:flex-end;gap:8px;
+  padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+  background:var(--ink-2);border-top:1px solid rgba(255,255,255,.07);
+  flex-shrink:0;
+}
+#barra button{
+  width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  background:rgba(255,255,255,.08);color:var(--texto);
+}
+#barra button:focus-visible,.chip:focus-visible{outline:2px solid var(--grana);outline-offset:2px}
+#barra button svg{width:20px;height:20px}
+#btnMic.gravando{background:var(--alerta);animation:pulsa 1s infinite}
+@keyframes pulsa{50%{opacity:.6}}
+#txt{
+  flex:1;min-height:42px;max-height:110px;resize:none;
+  background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);
+  border-radius:21px;color:var(--texto);
+  font-family:'Sora',sans-serif;font-size:14.5px;
+  padding:11px 15px;outline:none;
+}
+#txt:focus{border-color:var(--grana)}
+#btnEnviar{background:var(--grana)!important;color:#08221A!important}
+#fileInput{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca"><h1>Bolso</h1><span>assessor de gastos</span></div>
+  <div class="visor">
+    <div class="bloco"><small>Hoje</small><strong id="totHoje">R$ 0,00</strong></div>
+    <div class="bloco mes"><small id="mesLabel">Mês</small><strong id="totMes">R$ 0,00</strong></div>
+  </div>
+</header>
+
+<div id="chat" aria-live="polite"></div>
+
+<div id="chips">
+  <button class="chip" data-q="resumo de hoje">Resumo de hoje</button>
+  <button class="chip" data-q="resumo do mês por categoria">Resumo do mês</button>
+  <button class="chip" data-q="onde estou gastando mais?">Onde gasto mais?</button>
+  <button class="chip" data-q="apagar o último gasto">Apagar último</button>
+</div>
+
+<div id="barra">
+  <button id="btnFoto" title="Foto do comprovante" aria-label="Enviar foto do comprovante">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+  </button>
+  <input type="file" id="fileInput" accept="image/*">
+  <button id="btnMic" title="Falar" aria-label="Registrar gasto por voz">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+  </button>
+  <textarea id="txt" rows="1" placeholder="ex: 45 no mercado, 20 de uber..."></textarea>
+  <button id="btnEnviar" title="Enviar" aria-label="Enviar mensagem">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+  </button>
+</div>
+
+<script>
+/* ================= Config / API ================= */
+const API='/bolso';
+let SENHA=localStorage.getItem('bolso-senha')||'';
+
+function pedirSenha(){
+  const s=window.prompt('Senha do Bolso:');
+  if(s&&s.trim()){SENHA=s.trim();localStorage.setItem('bolso-senha',SENHA);}
+}
+async function api(caminho,opts={}){
+  if(!SENHA)pedirSenha();
+  const r=await fetch(API+caminho,{
+    ...opts,
+    headers:{'Content-Type':'application/json','X-Bolso-Key':SENHA,...(opts.headers||{})}
+  });
+  if(r.status===401){
+    localStorage.removeItem('bolso-senha');SENHA='';
+    throw new Error('senha');
+  }
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+/* ================= Estado ================= */
+let gastos=[];           // [{id, ts, valor, categoria, descricao, itens:[{nome,qtd,valor}]}]
+const chat=document.getElementById('chat');
+const txt=document.getElementById('txt');
+
+const fmt=v=>'R$ '+Number(v||0).toFixed(2).replace('.',',');
+const hojeISO=()=>new Date().toISOString().slice(0,10);
+const mesISO=()=>new Date().toISOString().slice(0,7);
+
+function normalizar(r){
+  return {id:r.id,ts:r.ts,valor:Number(r.valor)||0,categoria:r.categoria||'outros',
+    descricao:r.descricao||'',itens:Array.isArray(r.itens)?r.itens:[]};
+}
+async function carregar(){
+  try{gastos=(await api('/gastos')).map(normalizar);}
+  catch(e){gastos=[];throw e;}
+}
+
+/* ================= UI ================= */
+function scrollFim(){chat.scrollTop=chat.scrollHeight;}
+function addEu(html){const d=document.createElement('div');d.className='msg eu';d.innerHTML=html;chat.appendChild(d);scrollFim();}
+function addBot(t){const d=document.createElement('div');d.className='msg bot';d.textContent=t;chat.appendChild(d);scrollFim();}
+function addCupom(g){
+  const dt=new Date(g.ts);
+  const hora=dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  let linhas='';
+  if(g.itens&&g.itens.length){
+    linhas=g.itens.map(i=>`<div class="linha"><span class="nome">${i.qtd&&i.qtd>1?i.qtd+'x ':''}${esc(i.nome)}</span><span>${fmt(i.valor)}</span></div>`).join('');
+  }else{
+    linhas=`<div class="linha"><span class="nome">${esc(g.descricao||'Gasto')}</span><span>${fmt(g.valor)}</span></div>`;
+  }
+  const d=document.createElement('div');
+  d.className='cupom';
+  d.innerHTML=`<div class="cab"><span>Registrado</span><span>${hora}</span></div>${linhas}
+    <div class="total"><span>TOTAL</span><span>${fmt(g.valor)}</span></div>
+    <div class="cat">${esc(g.categoria||'outros')}</div>`;
+  chat.appendChild(d);scrollFim();
+}
+function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
+let elDigitando=null;
+function digitando(on){
+  if(on&&!elDigitando){elDigitando=document.createElement('div');elDigitando.className='digitando';elDigitando.textContent='processando…';chat.appendChild(elDigitando);scrollFim();}
+  if(!on&&elDigitando){elDigitando.remove();elDigitando=null;}
+}
+function atualizaVisor(){
+  const h=hojeISO(),m=mesISO();
+  const tHoje=gastos.filter(g=>g.ts.slice(0,10)===h).reduce((s,g)=>s+g.valor,0);
+  const tMes=gastos.filter(g=>g.ts.slice(0,7)===m).reduce((s,g)=>s+g.valor,0);
+  document.getElementById('totHoje').textContent=fmt(tHoje);
+  document.getElementById('totMes').textContent=fmt(tMes);
+  document.getElementById('mesLabel').textContent=new Date().toLocaleDateString('pt-BR',{month:'long'});
+}
+
+/* ================= IA ================= */
+function contextoGastos(){
+  const m=mesISO();
+  const doMes=gastos.filter(g=>g.ts.slice(0,7)===m).slice(-120)
+    .map(g=>({data:g.ts.slice(0,10),valor:g.valor,categoria:g.categoria,descricao:g.descricao}));
+  return JSON.stringify(doMes);
+}
+
+function chamarIA(conteudoUser){
+  return api('/chat',{method:'POST',body:JSON.stringify({messages:[{role:'user',content:conteudoUser}]})});
+}
+
+async function processar(conteudoUser,origem='texto'){
+  digitando(true);
+  try{
+    const r=await chamarIA(conteudoUser);
+    if(r.acao==='registrar'&&Array.isArray(r.gastos)){
+      const novos=await api('/gastos',{method:'POST',body:JSON.stringify({
+        gastos:r.gastos.map(g=>({valor:Number(g.valor)||0,categoria:g.categoria||'outros',
+          descricao:g.descricao||'',itens:Array.isArray(g.itens)?g.itens:[],origem}))
+      })});
+      digitando(false);
+      for(const row of novos){const g=normalizar(row);gastos.push(g);addCupom(g);}
+      atualizaVisor();
+      if(r.resposta)addBot(r.resposta);
+    }else if(r.acao==='apagar_ultimo'){
+      const ultimo=gastos[gastos.length-1];
+      if(ultimo){
+        await api('/gastos/'+ultimo.id,{method:'DELETE'});
+        gastos.pop();
+      }
+      digitando(false);
+      atualizaVisor();
+      addBot(ultimo?`Apagado: ${ultimo.descricao||'último gasto'} (${fmt(ultimo.valor)}) ✅`:'Não há gastos para apagar.');
+    }else{
+      digitando(false);
+      addBot(r.resposta||'Não entendi, pode repetir?');
+    }
+  }catch(e){
+    digitando(false);console.error(e);
+    addBot(e.message==='senha'
+      ?'🔒 Senha incorreta. Manda a mensagem de novo pra tentar outra senha.'
+      :'⚠️ Deu erro ao processar. Tenta de novo em instantes.');
+  }
+}
+
+/* ================= Entradas ================= */
+async function enviarTexto(t,origem='texto'){
+  t=(t||'').trim();if(!t)return;
+  addEu(esc(t));txt.value='';txt.style.height='auto';
+  const prompt=`Gastos do mês (JSON): ${contextoGastos()}\n\nMensagem do Igor: "${t}"`;
+  await processar([{type:"text",text:prompt}],origem);
+}
+
+document.getElementById('btnEnviar').onclick=()=>enviarTexto(txt.value);
+txt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviarTexto(txt.value);}});
+txt.addEventListener('input',()=>{txt.style.height='auto';txt.style.height=Math.min(txt.scrollHeight,110)+'px';});
+document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>enviarTexto(c.dataset.q));
+
+/* --- Foto de comprovante --- */
+const fileInput=document.getElementById('fileInput');
+document.getElementById('btnFoto').onclick=()=>fileInput.click();
+fileInput.onchange=async()=>{
+  const f=fileInput.files[0];fileInput.value='';if(!f)return;
+  const {b64,mime,preview}=await comprimir(f);
+  addEu(`<img src="${preview}" alt="comprovante">`);
+  const prompt=`Esta é a foto de um comprovante/nota fiscal de compra. Extraia cada item com quantidade e valor, o total e a categoria mais adequada. Registre como UM gasto com "itens" preenchido. Gastos do mês (JSON): ${contextoGastos()}`;
+  await processar([
+    {type:"image",source:{type:"base64",media_type:mime,data:b64}},
+    {type:"text",text:prompt}
+  ],'foto');
+};
+function comprimir(file){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const max=1400;let w=img.width,h=img.height;
+      if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k);}
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      const dataUrl=cv.toDataURL('image/jpeg',0.85);
+      res({b64:dataUrl.split(',')[1],mime:'image/jpeg',preview:dataUrl});
+    };
+    img.onerror=rej;
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+/* --- Voz (Web Speech API) --- */
+const btnMic=document.getElementById('btnMic');
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,gravando=false;
+if(SR){
+  rec=new SR();rec.lang='pt-BR';rec.interimResults=true;
+  rec.onresult=e=>{
+    let t='';for(const r of e.results)t+=r[0].transcript;
+    txt.value=t;
+  };
+  rec.onend=()=>{
+    gravando=false;btnMic.classList.remove('gravando');
+    if(txt.value.trim())enviarTexto(txt.value,'voz');
+  };
+  rec.onerror=()=>{gravando=false;btnMic.classList.remove('gravando');};
+  btnMic.onclick=()=>{
+    if(gravando){rec.stop();return;}
+    gravando=true;btnMic.classList.add('gravando');txt.value='';
+    try{rec.start();}catch(e){gravando=false;btnMic.classList.remove('gravando');}
+  };
+}else{
+  btnMic.onclick=()=>addBot('Reconhecimento de voz não disponível neste navegador. Use Chrome no Android. 🎙️');
+}
+
+/* ================= Início ================= */
+(async()=>{
+  let erroCarga=null;
+  try{await carregar();}catch(e){erroCarga=e;}
+  atualizaVisor();
+  const h=new Date().getHours();
+  const sauda=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
+  const tHoje=gastos.filter(g=>g.ts.slice(0,10)===hojeISO()).reduce((s,g)=>s+g.valor,0);
+  const tMes=gastos.filter(g=>g.ts.slice(0,7)===mesISO()).reduce((s,g)=>s+g.valor,0);
+  addBot(`${sauda}, Igor! 👋 Sou o Bolso, seu assessor de gastos.\n\nHoje: ${fmt(tHoje)} · Mês: ${fmt(tMes)}\n\nManda seu gasto por texto, áudio 🎙️ ou foto do comprovante 📸 que eu registro na hora.`);
+  if(erroCarga){
+    addBot(erroCarga.message==='senha'
+      ?'🔒 Senha incorreta. Recarrega a página pra tentar de novo.'
+      :'⚠️ Não consegui carregar os gastos salvos. Os totais podem estar zerados — recarrega a página em instantes.');
+  }
+})();
+</script>
+</body>
+</html>
