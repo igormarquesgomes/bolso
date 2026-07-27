@@ -358,18 +358,19 @@ if(SR){
 
 /* ================= Início ================= */
 (async()=>{
-  let erroCarga=null;
-  try{await carregar();}catch(e){erroCarga=e;}
-  atualizaVisor();
+  // Saudação imediata; os gastos carregam em segundo plano enquanto o
+  // backend (plano free do Render) acorda — pode levar ~30-50s após ociosidade
   const h=new Date().getHours();
   const sauda=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
-  const tHoje=gastos.filter(g=>g.ts.slice(0,10)===hojeISO()).reduce((s,g)=>s+g.valor,0);
-  const tMes=gastos.filter(g=>g.ts.slice(0,7)===mesISO()).reduce((s,g)=>s+g.valor,0);
-  addBot(`${sauda}, Igor! 👋 Sou o Bolso, seu assessor de gastos.\n\nHoje: ${fmt(tHoje)} · Mês: ${fmt(tMes)}\n\nManda seu gasto por texto, áudio 🎙️ ou foto do comprovante 📸 que eu registro na hora.`);
-  if(erroCarga){
-    addBot(erroCarga.message==='senha'
+  addBot(`${sauda}, Igor! 👋 Sou o Bolso, seu assessor de gastos.\n\nManda seu gasto por texto, áudio 🎙️ ou foto do comprovante 📸 que eu registro na hora.`);
+  atualizaVisor();
+  try{
+    await carregar();
+    atualizaVisor();
+  }catch(e){
+    addBot(e.message==='senha'
       ?'🔒 Senha incorreta. Recarrega a página pra tentar de novo.'
-      :'⚠️ Não consegui carregar os gastos salvos. Os totais podem estar zerados — recarrega a página em instantes.');
+      :'⚠️ Não consegui carregar os gastos salvos. Os totais do visor podem estar zerados — mas pode mandar gastos normalmente.');
   }
 })();
 </script>
