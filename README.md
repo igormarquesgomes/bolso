@@ -11,12 +11,17 @@ Projeto independente (não compartilha nada com o OddLab).
 
 ## Endpoints
 
-Todos exigem o header `X-Bolso-Key: <senha>` (ou `?key=`):
+Todos exigem o header `X-Bolso-Key: <senha>` (ou `?key=`). Meses em horário de Brasília:
 
-- `POST /bolso/chat` — `{ messages }` → chama a Anthropic (claude-sonnet-4-6) e devolve o JSON da ação
-- `GET /bolso/gastos` — gastos do mês corrente (ou `?desde=YYYY-MM-DD`)
-- `POST /bolso/gastos` — `{ gastos: [...] }` insere e devolve as linhas criadas
-- `DELETE /bolso/gastos/:id` — apaga um gasto
+- `POST /bolso/chat` — `{ messages }` → Anthropic (claude-sonnet-4-6) → `{ acao, gastos[], resposta }` (extrai `forma_pagamento` quando dito)
+- `GET/POST /bolso/gastos` · `PUT/DELETE /bolso/gastos/:id` — `?ref=aaaa-mm`, inclui `forma_pagamento` e `data`
+- `GET/PUT /bolso/perfil` — renda prevista, meta mensal e objetivo (registro único)
+- `GET/POST /bolso/entradas` · `DELETE /bolso/entradas/:id` — renda que entrou no mês
+- `GET/POST /bolso/fixas` · `PUT /bolso/fixas/:id` — cadastro de despesas fixas (desativar preserva histórico)
+- `GET /bolso/fixas/mes?ref=aaaa-mm` — fixas com status calculado (paga / aberta / vencida)
+- `POST /bolso/fixas/pagar` — grava pagamento do mês (upsert por despesa+mês)
+- `GET/POST /bolso/reserva` · `DELETE /bolso/reserva/:id` — aportes e resgates (resgate maior que o saldo é bloqueado)
+- `GET /bolso/resumo?ref=aaaa-mm` — payload único do dashboard: totais, saldo livre, contas a vencer e séries dos 4 gráficos
 - `GET /health` — sem senha; mostra quais variáveis estão configuradas
 
 ## Variáveis de ambiente (Render)
