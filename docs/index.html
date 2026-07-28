@@ -263,9 +263,11 @@ details.dobra .corpo{background:var(--card);border:1px solid var(--linha);border
         <div class="campo"><label>Categoria</label>
           <select id="gCategoria">
             <option value="mercado">Mercado</option><option value="alimentacao">Alimentação</option>
+            <option value="alcoolico">Alcoólico</option><option value="doces">Doces</option>
             <option value="transporte">Transporte</option><option value="lazer">Lazer</option>
             <option value="contas">Contas</option><option value="saude">Saúde</option>
-            <option value="casa">Casa</option><option value="outros" selected>Outros</option>
+            <option value="casa">Casa</option><option value="limpeza">Limpeza</option>
+            <option value="higiene">Higiene</option><option value="outros" selected>Outros</option>
           </select>
         </div>
         <div class="campo"><label>Descrição</label><input id="gDescricao" placeholder="opcional"></div>
@@ -283,9 +285,11 @@ details.dobra .corpo{background:var(--card);border:1px solid var(--linha);border
     <div class="filtros">
       <select id="fCategoria"><option value="">Todas categorias</option>
         <option value="mercado">Mercado</option><option value="alimentacao">Alimentação</option>
+        <option value="alcoolico">Alcoólico</option><option value="doces">Doces</option>
         <option value="transporte">Transporte</option><option value="lazer">Lazer</option>
         <option value="contas">Contas</option><option value="saude">Saúde</option>
-        <option value="casa">Casa</option><option value="outros">Outros</option>
+        <option value="casa">Casa</option><option value="limpeza">Limpeza</option>
+        <option value="higiene">Higiene</option><option value="outros">Outros</option>
       </select>
       <select id="fForma"><option value="">Todas formas</option>
         <option value="credito">Crédito</option><option value="debito">Débito</option>
@@ -450,7 +454,8 @@ function nomeDia(iso){
 const FORMA_LABEL={credito:'Crédito',debito:'Débito',pix:'Pix',dinheiro:'Dinheiro',boleto:'Boleto',nao_informado:'Não informado'};
 const FORMA_COR={credito:'#D96553',debito:'#3E7CB1',pix:'#1E6B4F',dinheiro:'#B98A1F',boleto:'#7A5EA8',nao_informado:'#9AA5A0'};
 const FORMA_ICONE={credito:'💳',debito:'🏧',pix:'⚡',dinheiro:'💵',boleto:'🧾',nao_informado:'❔'};
-const CAT_CORES=['#1E6B4F','#D96553','#B98A1F','#3E7CB1','#7A5EA8','#5E8C61','#C2703D','#8A8578','#4E6E81','#A85E71'];
+const CAT_CORES=['#1E6B4F','#D96553','#B98A1F','#3E7CB1','#7A5EA8','#5E8C61','#C2703D','#8A8578','#4E6E81','#A85E71','#6B8E9E','#997B4F'];
+const CATEGORIAS=['mercado','alimentacao','alcoolico','doces','transporte','lazer','contas','saude','casa','limpeza','higiene','outros'];
 
 function toast(t){
   const el=$('toast');el.textContent=t;el.classList.add('mostra');
@@ -665,7 +670,9 @@ async function renderGastos(){
 function pintarListaGastos(){
   if(!cacheGastos)return;
   let lista=cacheGastos;
-  if(filtroCategoria)lista=lista.filter(g=>(g.categoria||'outros')===filtroCategoria);
+  // um gasto entra no filtro se a categoria dele OU de algum item bater
+  if(filtroCategoria)lista=lista.filter(g=>(g.categoria||'outros')===filtroCategoria
+    ||(Array.isArray(g.itens)&&g.itens.some(i=>i&&i.categoria===filtroCategoria)));
   if(filtroForma)lista=lista.filter(g=>(g.forma_pagamento||'nao_informado')===filtroForma);
   if(!lista.length){
     $('listaGastos').innerHTML=`<div class="vazio">${cacheGastos.length?'Nada com esses filtros.':'Nenhum gasto em '+nomeMes(ref)+'.<br>Manda pelo chat aí em cima 👆'}</div>`;
@@ -725,7 +732,7 @@ function modalEditarGasto(id){
   abrirModal(`<h3>Editar gasto</h3>
     <div class="campo"><label>Valor (R$)</label><input id="meValor" inputmode="decimal" value="${String(Number(g.valor).toFixed(2)).replace('.',',')}"></div>
     <div class="campo"><label>Categoria</label>
-      <select id="meCategoria">${['mercado','alimentacao','transporte','lazer','contas','saude','casa','outros'].map(c=>`<option value="${c}" ${c===(g.categoria||'outros')?'selected':''}>${c}</option>`).join('')}</select></div>
+      <select id="meCategoria">${CATEGORIAS.map(c=>`<option value="${c}" ${c===(g.categoria||'outros')?'selected':''}>${c}</option>`).join('')}</select></div>
     <div class="campo"><label>Descrição</label><input id="meDescricao" value="${esc(g.descricao||'')}"></div>
     <div class="campo"><label>Data</label><input id="meData" type="date" value="${diaSP(g.ts)}"></div>
     <div class="campo"><label>Forma de pagamento</label>

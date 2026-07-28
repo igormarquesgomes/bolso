@@ -101,10 +101,11 @@ const SYSTEM = `Você é o Bolso, assessor pessoal de gastos do Igor (Brasil). H
 Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.
 
 Formato:
-{"acao":"registrar"|"responder"|"apagar_ultimo","gastos":[{"valor":num,"categoria":"mercado|alimentacao|transporte|lazer|contas|saude|casa|outros","descricao":"texto curto","forma_pagamento":"credito"|"debito"|"pix"|"dinheiro"|"boleto"|null,"itens":[{"nome":"...","qtd":num,"valor":num}]}],"resposta":"mensagem curta e amigável em pt-BR"}
+{"acao":"registrar"|"responder"|"apagar_ultimo","gastos":[{"valor":num,"categoria":"mercado|alimentacao|alcoolico|doces|transporte|lazer|contas|saude|casa|limpeza|higiene|outros","descricao":"texto curto","forma_pagamento":"credito"|"debito"|"pix"|"dinheiro"|"boleto"|null,"itens":[{"nome":"...","qtd":num,"valor":num,"categoria":"mesma lista"}]}],"resposta":"mensagem curta e amigável em pt-BR"}
 
 Regras:
 - Se a mensagem descreve um ou mais gastos → acao "registrar", um objeto por gasto. "itens" só quando houver itens discriminados (ex: nota fiscal); senão omita.
+- Classifique CADA item na categoria mais específica: cerveja/vinho/destilados → "alcoolico"; sorvete/chocolate/bolo → "doces"; detergente/sabão → "limpeza"; shampoo/sabonete → "higiene"; comida em geral → "alimentacao". O gasto em si mantém a categoria geral (ex: compra de supermercado → "mercado").
 - "forma_pagamento": preencha SOMENTE se o usuário disser como pagou ("no pix", "no cartão", "crédito", "em dinheiro"...). "cartão" sem especificar → "credito". Se não disser, use null — o app vai perguntar.
 - Se for pergunta sobre os gastos → acao "responder", use os dados fornecidos, seja direto e cite valores.
 - Se pedir para apagar/desfazer o último → acao "apagar_ultimo".
@@ -443,7 +444,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
 
     const [perfilRows, gastosMes, entradasMes, fixasMes, reservaTudo, gastos6, entradas6, pagamentos6] = await Promise.all([
       sbJson('bolso_perfil?limit=1'),
-      sbJson(`bolso_gastos?ts=gte.${ini}&ts=lt.${fim}&select=id,ts,valor,categoria,descricao,forma_pagamento&order=ts.desc&limit=1000`),
+      sbJson(`bolso_gastos?ts=gte.${ini}&ts=lt.${fim}&select=id,ts,valor,categoria,descricao,forma_pagamento,itens&order=ts.desc&limit=1000`),
       sbJson(`bolso_entradas?ts=gte.${ini}&ts=lt.${fim}&select=valor,tipo`),
       fixasDoMes(ref),
       sbJson('bolso_reserva?select=tipo,valor,ts'),
@@ -472,9 +473,18 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     // Fixas pagas também saem (dinheiro que já foi), além do previsto em aberto.
     const saldoLivre = totEntradas + resgatesMes - totGastos - totFixasPago - totFixasAberto - aportesMes;
 
-    // Gráficos
+    // Gráficos — categorias "explodidas": item classificado conta na própria
+    // categoria; o restante do gasto cai na categoria geral dele
     const porCategoria = {};
-    for (const g of gastosMes) porCategoria[g.categoria || 'outros'] = (porCategoria[g.categoria || 'outros'] || 0) + num(g.valor);
+    const somaCat = (cat, v) => { if (v > 0.004) porCategoria[cat] = (porCategoria[cat] || 0) + v; };
+    for (const g of gastosMes) {
+      let resto = num(g.valor);
+      for (const i of (Array.isArray(g.itens) ? g.itens : [])) {
+        const v = Math.min(num(i && i.valor), resto);
+        if (i && i.categoria && v > 0) { somaCat(i.categoria, v); resto -= v; }
+      }
+      somaCat(g.categoria || 'outros', resto);
+    }
     const porForma = {};
     for (const g of gastosMes) {
       const f = g.forma_pagamento || 'nao_informado';
@@ -538,7 +548,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
-    v: 3,
+    v: 4,
     anthropic: !!ANTHROPIC_API_KEY,
     supabase: !!(BOLSO_SUPABASE_URL && BOLSO_SUPABASE_KEY),
     senha: !!BOLSO_SENHA
