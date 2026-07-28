@@ -398,6 +398,21 @@ async function api(caminho,opts={}){
   }
   return r.json();
 }
+// GETs de carga inicial: insiste enquanto o backend (free do Render) acorda (~40s).
+// Erros de rede/5xx são re-tentados; senha errada e 4xx não.
+async function apiCarregar(caminho){
+  for(let i=0;i<6;i++){
+    try{return await api(caminho);}
+    catch(e){
+      if(e.message==='senha'||(e.http&&e.http<500))throw e;
+      if(i===5)throw e;
+      await new Promise(r=>setTimeout(r,8000));
+    }
+  }
+}
+function htmlErroCarga(){
+  return '<div class="vazio">⚠️ O servidor não respondeu (deve estar acordando).<br><br><button class="btn btn-claro btn-mini" onclick="trocarAba(abaAtiva)">Tentar de novo</button></div>';
+}
 
 /* ================= Utilitários ================= */
 const $=id=>document.getElementById(id);
@@ -478,7 +493,7 @@ async function renderResumo(){
   const alvo=$('resumoConteudo');
   if(!cacheResumo){
     alvo.innerHTML='<div class="vazio">Carregando… (se o app ficou parado, o servidor pode levar ~40s pra acordar)</div>';
-    try{cacheResumo=await api('/resumo?ref='+ref);}catch(e){alvo.innerHTML='<div class="vazio">⚠️ Não consegui carregar. Puxa pra baixo ou troca de aba pra tentar de novo.</div>';erroUI(e);return;}
+    try{cacheResumo=await apiCarregar('/resumo?ref='+ref);}catch(e){alvo.innerHTML=htmlErroCarga();erroUI(e);return;}
   }
   const r=cacheResumo,t=r.totais;
   const corSaldo=t.saldo_livre>=0?'pos':'neg';
@@ -643,7 +658,7 @@ async function renderGastos(){
   if(!$('gData').value)$('gData').value=hojeSP();
   if(!cacheGastos){
     $('listaGastos').innerHTML='<div class="vazio">Carregando…</div>';
-    try{cacheGastos=await api('/gastos?ref='+ref);}catch(e){$('listaGastos').innerHTML='<div class="vazio">⚠️ Não consegui carregar os gastos.</div>';erroUI(e);return;}
+    try{cacheGastos=await apiCarregar('/gastos?ref='+ref);}catch(e){$('listaGastos').innerHTML=htmlErroCarga();erroUI(e);return;}
   }
   pintarListaGastos();
 }
@@ -892,7 +907,7 @@ if(SR){
 async function renderFixas(){
   if(!cacheFixasMes){
     $('listaFixas').innerHTML='<div class="vazio">Carregando…</div>';
-    try{cacheFixasMes=await api('/fixas/mes?ref='+ref);}catch(e){$('listaFixas').innerHTML='<div class="vazio">⚠️ Não consegui carregar.</div>';erroUI(e);return;}
+    try{cacheFixasMes=await apiCarregar('/fixas/mes?ref='+ref);}catch(e){$('listaFixas').innerHTML=htmlErroCarga();erroUI(e);return;}
   }
   const hoje=hojeSP();
   if(!cacheFixasMes.length){
@@ -964,7 +979,7 @@ async function renderGuardei(){
   const alvo=$('reservaConteudo');
   if(!cacheReserva){
     alvo.innerHTML='<div class="vazio">Carregando…</div>';
-    try{cacheReserva=await api('/reserva?ref='+ref);}catch(e){alvo.innerHTML='<div class="vazio">⚠️ Não consegui carregar.</div>';erroUI(e);return;}
+    try{cacheReserva=await apiCarregar('/reserva?ref='+ref);}catch(e){alvo.innerHTML=htmlErroCarga();erroUI(e);return;}
   }
   const r=cacheReserva;
   let extrato='';
@@ -1024,7 +1039,7 @@ async function apagarReserva(id){
 async function renderPerfil(){
   if(!$('eData').value)$('eData').value=hojeSP();
   if(!cachePerfil){
-    try{cachePerfil=await api('/perfil');}catch(e){erroUI(e);}
+    try{cachePerfil=await apiCarregar('/perfil');}catch(e){erroUI(e);}
     if(cachePerfil){
       $('pRenda').value=Number(cachePerfil.renda_prevista||0)?String(Number(cachePerfil.renda_prevista).toFixed(2)).replace('.',','):'';
       $('pMeta').value=Number(cachePerfil.meta_mensal||0)?String(Number(cachePerfil.meta_mensal).toFixed(2)).replace('.',','):'';
@@ -1035,7 +1050,7 @@ async function renderPerfil(){
   }
   if(!cacheEntradas){
     $('listaEntradas').innerHTML='<div class="vazio">Carregando…</div>';
-    try{cacheEntradas=await api('/entradas?ref='+ref);}catch(e){$('listaEntradas').innerHTML='<div class="vazio">⚠️ Não consegui carregar.</div>';return;}
+    try{cacheEntradas=await apiCarregar('/entradas?ref='+ref);}catch(e){$('listaEntradas').innerHTML=htmlErroCarga();return;}
   }
   const TIPO_LABEL={salario:'Salário',extra:'Extra',reembolso:'Reembolso',outros:'Outros'};
   $('listaEntradas').innerHTML=cacheEntradas.length

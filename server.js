@@ -75,12 +75,20 @@ function sb(pathQuery, options = {}) {
   });
 }
 async function sbJson(pathQuery, options = {}) {
-  const r = await sb(pathQuery, options);
-  if (!r.ok) {
+  // PGRST303 "JWT issued at future": skew de relógio ao traduzir a secret key
+  // nova — transitório, resolve em ~1s. 5xx também merece nova tentativa.
+  for (let tentativa = 1; ; tentativa++) {
+    const r = await sb(pathQuery, options);
+    if (r.ok) return r.status === 204 ? null : r.json();
     const corpo = await r.text();
+    const transitorio = r.status >= 500 || corpo.includes('PGRST303');
+    if (transitorio && tentativa < 3) {
+      console.log(`⏳ Supabase ${r.status} (tentativa ${tentativa}), repetindo: ${corpo.slice(0, 120)}`);
+      await new Promise(res => setTimeout(res, 1500));
+      continue;
+    }
     throw new Error(`Supabase ${r.status}: ${corpo.slice(0, 300)}`);
   }
-  return r.status === 204 ? null : r.json();
 }
 const num = v => Number(v) || 0;
 function erro500(res, rota, e) {
@@ -530,6 +538,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
+    v: 3,
     anthropic: !!ANTHROPIC_API_KEY,
     supabase: !!(BOLSO_SUPABASE_URL && BOLSO_SUPABASE_KEY),
     senha: !!BOLSO_SENHA
