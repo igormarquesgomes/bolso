@@ -297,13 +297,15 @@ app.post('/bolso/fixas', auth, async (req, res) => {
   try {
     const b = req.body || {};
     const dia = parseInt(b.dia_vencimento, 10);
-    if (!b.nome || !num(b.valor) || !(dia >= 1 && dia <= 31)) {
-      return res.status(400).json({ error: 'Informe nome, valor e dia de vencimento (1-31)' });
+    const variavel = !!b.valor_variavel;
+    // valor só é obrigatório quando NÃO é variável (cartão/energia entram sem valor)
+    if (!b.nome || !(dia >= 1 && dia <= 31) || (!variavel && !num(b.valor))) {
+      return res.status(400).json({ error: 'Informe nome, dia de vencimento (1-31) e valor (ou marque valor variável)' });
     }
     const rows = await sbJson('bolso_despesas_fixas', {
       method: 'POST',
       headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({ nome: b.nome, valor: num(b.valor), dia_vencimento: dia, categoria: b.categoria || 'fixas' })
+      body: JSON.stringify({ nome: b.nome, valor: num(b.valor), dia_vencimento: dia, categoria: b.categoria || 'fixas', valor_variavel: variavel })
     });
     res.json(rows[0]);
   } catch (e) { erro500(res, 'fixas POST', e); }
@@ -322,6 +324,7 @@ app.put('/bolso/fixas/:id', auth, async (req, res) => {
       patch.dia_vencimento = dia;
     }
     if (b.categoria !== undefined) patch.categoria = b.categoria || 'fixas';
+    if (b.valor_variavel !== undefined) patch.valor_variavel = !!b.valor_variavel;
     if (b.ativa !== undefined) patch.ativa = !!b.ativa;  // desativar preserva histórico
     const rows = await sbJson(`bolso_despesas_fixas?id=eq.${req.params.id}`, {
       method: 'PATCH',
@@ -340,18 +343,30 @@ async function fixasDoMes(ref) {
   ]);
   const pagoPor = Object.fromEntries(pagamentos.map(p => [p.despesa_id, p]));
   const hoje = hojeSP();
-  return fixas
-    .filter(f => f.ativa || pagoPor[f.id])  // inativas só aparecem se tiverem pagamento no mês (histórico)
-    .map(f => {
-      const pag = pagoPor[f.id] || null;
-      const vencimento = vencimentoNoMes(ref, f.dia_vencimento);
-      const status = pag ? 'paga' : (vencimento < hoje ? 'vencida' : 'aberta');
-      return {
-        ...f, vencimento, status,
-        valor_pago: pag ? num(pag.valor_pago) : null,
-        pago_em: pag ? pag.pago_em : null
-      };
-    });
+  const ativasNoMes = fixas.filter(f => f.ativa || pagoPor[f.id]); // inativas só com pagamento no mês (histórico)
+
+  // Para fixas de valor variável ainda em aberto, estima pelo último valor pago
+  // em meses anteriores (ex: energia do mês passado) — melhora "total previsto".
+  const varIds = ativasNoMes.filter(f => f.valor_variavel && !pagoPor[f.id]).map(f => f.id);
+  const ultimoPago = {};
+  if (varIds.length) {
+    const hist = await sbJson(`bolso_fixas_pagamentos?despesa_id=in.(${varIds.join(',')})&mes_referencia=lt.${ref}-01&order=mes_referencia.desc`);
+    for (const p of hist) if (!(p.despesa_id in ultimoPago)) ultimoPago[p.despesa_id] = num(p.valor_pago);
+  }
+
+  return ativasNoMes.map(f => {
+    const pag = pagoPor[f.id] || null;
+    const vencimento = vencimentoNoMes(ref, f.dia_vencimento);
+    const status = pag ? 'paga' : (vencimento < hoje ? 'vencida' : 'aberta');
+    // estimativa: se paga, o valor pago; se variável, o último pago (ou 0 = "a definir"); senão o valor cadastrado
+    const estimativa = pag ? num(pag.valor_pago)
+      : (f.valor_variavel ? (f.id in ultimoPago ? ultimoPago[f.id] : num(f.valor)) : num(f.valor));
+    return {
+      ...f, vencimento, status, estimativa,
+      valor_pago: pag ? num(pag.valor_pago) : null,
+      pago_em: pag ? pag.pago_em : null
+    };
+  });
 }
 
 app.get('/bolso/fixas/mes', auth, async (req, res) => {
@@ -460,7 +475,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     const totEntradas = soma(entradasMes);
     const totGastos = soma(gastosMes);
     const fixasAbertas = fixasMes.filter(f => f.status !== 'paga');
-    const totFixasAberto = soma(fixasAbertas);
+    const totFixasAberto = soma(fixasAbertas, f => num(f.estimativa)); // variáveis entram pela estimativa
     const totFixasPago = soma(fixasMes.filter(f => f.status === 'paga'), f => num(f.valor_pago ?? f.valor));
 
     const reservaMes = reservaTudo.filter(r => r.ts >= ini && r.ts < fim);
@@ -529,7 +544,8 @@ app.get('/bolso/resumo', auth, async (req, res) => {
           ? Math.min(saldoReservaTotal / num(perfil.objetivo_valor) * 100, 100) : null
       },
       contas_a_vencer: fixasAbertas.map(f => ({
-        id: f.id, nome: f.nome, valor: num(f.valor), vencimento: f.vencimento, status: f.status
+        id: f.id, nome: f.nome, valor: num(f.estimativa), vencimento: f.vencimento, status: f.status,
+        variavel: !!f.valor_variavel, a_definir: !!f.valor_variavel && !num(f.estimativa)
       })),
       graficos: {
         categorias: Object.entries(porCategoria).map(([categoria, total]) => ({ categoria, total }))
@@ -548,7 +564,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
-    v: 4,
+    v: 5,
     anthropic: !!ANTHROPIC_API_KEY,
     supabase: !!(BOLSO_SUPABASE_URL && BOLSO_SUPABASE_KEY),
     senha: !!BOLSO_SENHA

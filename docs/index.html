@@ -139,6 +139,9 @@ details.dobra summary{
 details.dobra summary::after{content:"+";color:var(--dim);font-size:18px}
 details.dobra[open] summary::after{content:"–"}
 details.dobra .corpo{background:var(--card);border:1px solid var(--linha);border-top:none;border-radius:0 0 12px 12px;padding:12px 14px;margin-top:-8px}
+.chk{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13.5px;cursor:pointer}
+.chk input{width:20px;height:20px;flex-shrink:0;accent-color:var(--verde)}
+.chk small{color:var(--dim);font-size:11.5px}
 
 /* filtros */
 .filtros{display:flex;gap:8px;margin:10px 0}
@@ -305,8 +308,9 @@ details.dobra .corpo{background:var(--card);border:1px solid var(--linha);border
     <details class="dobra">
       <summary>Nova despesa fixa</summary>
       <div class="corpo">
-        <div class="campo"><label>Nome</label><input id="fxNome" placeholder="ex: aluguel, luz, internet"></div>
-        <div class="campo"><label>Valor (R$)</label><input id="fxValor" inputmode="decimal" placeholder="0,00"></div>
+        <div class="campo"><label>Nome</label><input id="fxNome" placeholder="ex: aluguel, luz, cartão Nubank"></div>
+        <label class="chk"><input type="checkbox" id="fxVariavel"> <span>Valor variável <small>(cartão, energia — o valor muda todo mês)</small></span></label>
+        <div class="campo" id="fxValorCampo"><label>Valor (R$)</label><input id="fxValor" inputmode="decimal" placeholder="0,00"></div>
         <div class="campo"><label>Dia do vencimento</label><input id="fxDia" type="number" min="1" max="31" placeholder="1 a 31"></div>
         <div class="campo"><label>Categoria</label><input id="fxCategoria" placeholder="fixas" value="fixas"></div>
         <button class="btn btn-verde" id="fxSalvar" style="width:100%">Cadastrar</button>
@@ -420,6 +424,7 @@ function htmlErroCarga(){
 
 /* ================= Utilitários ================= */
 const $=id=>document.getElementById(id);
+const num=v=>Number(v)||0;
 const fmt=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const pct=v=>v.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
 function esc(s){return String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
@@ -510,10 +515,11 @@ async function renderResumo(){
       const dias=Math.round((new Date(c.vencimento)-new Date(hoje))/86400000);
       const cls=c.status==='vencida'?'st-vencida':(dias<=3?'st-alerta':'st-aberta');
       const rot=c.status==='vencida'?'Vencida':(dias===0?'Vence hoje':dias===1?'Amanhã':dataBR(c.vencimento));
+      const valTxt=c.a_definir?'a definir':(c.variavel?'~'+fmt(c.valor):fmt(c.valor));
       return `<div class="item">
-        <div class="info"><b>${esc(c.nome)}</b><small class="num">${fmt(c.valor)}</small></div>
+        <div class="info"><b>${esc(c.nome)}${c.variavel?' <span style="font-size:9px;color:var(--dim);font-weight:600">VARIÁVEL</span>':''}</b><small class="num">${valTxt}</small></div>
         <span class="chip-status ${cls}">${rot}</span>
-        <button class="btn btn-claro btn-mini" onclick="modalPagar('${c.id}','${esc(c.nome)}',${c.valor})">Paga</button>
+        <button class="btn btn-claro btn-mini" onclick="modalPagar('${c.id}','${esc(c.nome)}',${c.a_definir?0:c.valor})">Paga</button>
       </div>`;
     }).join('')+'</div>';
   }
@@ -637,8 +643,9 @@ function desenharGraficos(r){
 }
 
 function modalPagar(id,nome,valor){
+  const pre=Number(valor)>0?String(Number(valor).toFixed(2)).replace('.',','):''; // variável sem estimativa abre vazio
   abrirModal(`<h3>Pagar: ${nome}</h3>
-    <div class="campo"><label>Valor pago (R$)</label><input id="mpValor" inputmode="decimal" value="${String(valor.toFixed(2)).replace('.',',')}"></div>
+    <div class="campo"><label>Valor pago (R$)</label><input id="mpValor" inputmode="decimal" placeholder="0,00" value="${pre}"></div>
     <div class="campo"><label>Pago em</label><input id="mpData" type="date" value="${hojeSP()}"></div>
     <div class="btn-linha">
       <button class="btn btn-claro" onclick="fecharModal()">Cancelar</button>
@@ -921,30 +928,38 @@ async function renderFixas(){
     $('listaFixas').innerHTML='<div class="vazio">Nenhuma despesa fixa cadastrada.<br>Cadastre a primeira aí em cima 👆</div>';
     return;
   }
-  const totPrev=cacheFixasMes.reduce((s,f)=>s+Number(f.valor||0),0);
-  $('listaFixas').innerHTML=`<div class="aviso-topo num">Total previsto do mês: <b>${fmt(totPrev)}</b></div><div class="card" style="padding:4px 12px">`+
+  const totPrev=cacheFixasMes.reduce((s,f)=>s+Number((f.status==='paga'?f.valor_pago:f.estimativa)||0),0);
+  const temVar=cacheFixasMes.some(f=>f.valor_variavel&&!num(f.estimativa)&&f.status!=='paga');
+  $('listaFixas').innerHTML=`<div class="aviso-topo num">Total previsto do mês: <b>${fmt(totPrev)}</b>${temVar?' <span style="font-size:10px">(fora as "a definir")</span>':''}</div><div class="card" style="padding:4px 12px">`+
     cacheFixasMes.map(f=>{
       const dias=Math.round((new Date(f.vencimento)-new Date(hoje))/86400000);
       const cls=f.status==='paga'?'st-paga':f.status==='vencida'?'st-vencida':(dias<=3?'st-alerta':'st-aberta');
       const rot=f.status==='paga'?'Paga':f.status==='vencida'?'Vencida':'Em aberto';
+      const aDefinir=f.valor_variavel&&f.status!=='paga'&&!num(f.estimativa);
+      const valTxt=f.status==='paga'?fmt(f.valor_pago):(aDefinir?'a definir':(f.valor_variavel?'~'+fmt(f.estimativa):fmt(f.valor)));
       return `<div class="item" style="${!f.ativa?'opacity:.5':''}">
-        <div class="info"><b>${esc(f.nome)}${!f.ativa?' (desativada)':''}</b>
-          <small class="num">${fmt(f.status==='paga'&&f.valor_pago!==null?f.valor_pago:f.valor)} · vence ${dataBR(f.vencimento)}${f.status==='paga'&&f.pago_em?' · paga em '+dataBR(f.pago_em):''}</small></div>
+        <div class="info"><b>${esc(f.nome)}${f.valor_variavel?' <span style="font-size:9px;color:var(--dim);font-weight:600">VARIÁVEL</span>':''}${!f.ativa?' (desativada)':''}</b>
+          <small class="num">${valTxt} · vence ${dataBR(f.vencimento)}${f.status==='paga'&&f.pago_em?' · paga em '+dataBR(f.pago_em):''}</small></div>
         <span class="chip-status ${cls}">${rot}</span>
         <div class="acoes-item">
-          ${f.status!=='paga'&&f.ativa?`<button onclick="modalPagar('${f.id}','${esc(f.nome)}',${Number(f.valor)})" title="Marcar como paga" style="color:var(--verde)">✓</button>`:''}
+          ${f.status!=='paga'&&f.ativa?`<button onclick="modalPagar('${f.id}','${esc(f.nome)}',${aDefinir?0:Number(f.estimativa)})" title="Marcar como paga" style="color:var(--verde)">✓</button>`:''}
           <button onclick="modalEditarFixa('${f.id}')" aria-label="Editar">✎</button>
           ${f.ativa?`<button onclick="desativarFixa('${f.id}')" title="Desativar">🚫</button>`:`<button onclick="reativarFixa('${f.id}')" title="Reativar">↩</button>`}
         </div>
       </div>`;
     }).join('')+'</div>';
 }
+$('fxVariavel').onchange=()=>{
+  const v=$('fxVariavel').checked;
+  $('fxValor').closest('.campo').querySelector('label').textContent=v?'Valor estimado (opcional)':'Valor (R$)';
+};
 $('fxSalvar').onclick=async()=>{
   const nome=$('fxNome').value.trim(),valor=lerValor($('fxValor').value),dia=parseInt($('fxDia').value,10);
-  if(!nome||!valor||!(dia>=1&&dia<=31)){toast('Preencha nome, valor e dia (1-31)');return;}
+  const variavel=$('fxVariavel').checked;
+  if(!nome||!(dia>=1&&dia<=31)||(!variavel&&!valor)){toast(variavel?'Preencha nome e dia (1-31)':'Preencha nome, valor e dia (1-31)');return;}
   try{
-    await api('/fixas',{method:'POST',body:JSON.stringify({nome,valor,dia_vencimento:dia,categoria:$('fxCategoria').value.trim()||'fixas'})});
-    $('fxNome').value='';$('fxValor').value='';$('fxDia').value='';
+    await api('/fixas',{method:'POST',body:JSON.stringify({nome,valor,dia_vencimento:dia,categoria:$('fxCategoria').value.trim()||'fixas',valor_variavel:variavel})});
+    $('fxNome').value='';$('fxValor').value='';$('fxDia').value='';$('fxVariavel').checked=false;$('fxVariavel').onchange();
     invalidar();toast('Fixa cadastrada ✓');renderFixas();
   }catch(e){erroUI(e);}
 };
@@ -961,20 +976,23 @@ function modalEditarFixa(id){
   const f=(cacheFixasMes||[]).find(x=>x.id===id);if(!f)return;
   abrirModal(`<h3>Editar fixa</h3>
     <div class="campo"><label>Nome</label><input id="mfNome" value="${esc(f.nome)}"></div>
-    <div class="campo"><label>Valor (R$)</label><input id="mfValor" inputmode="decimal" value="${String(Number(f.valor).toFixed(2)).replace('.',',')}"></div>
+    <label class="chk"><input type="checkbox" id="mfVariavel" ${f.valor_variavel?'checked':''}> <span>Valor variável <small>(cartão, energia)</small></span></label>
+    <div class="campo"><label id="mfValorLabel">${f.valor_variavel?'Valor estimado (opcional)':'Valor (R$)'}</label><input id="mfValor" inputmode="decimal" value="${num(f.valor)?String(Number(f.valor).toFixed(2)).replace('.',','):''}"></div>
     <div class="campo"><label>Dia do vencimento</label><input id="mfDia" type="number" min="1" max="31" value="${f.dia_vencimento}"></div>
     <div class="campo"><label>Categoria</label><input id="mfCategoria" value="${esc(f.categoria||'fixas')}"></div>
     <div class="btn-linha">
       <button class="btn btn-claro" onclick="fecharModal()">Cancelar</button>
       <button class="btn btn-verde" id="mfOk">Salvar</button>
     </div>`);
+  $('mfVariavel').onchange=()=>{$('mfValorLabel').textContent=$('mfVariavel').checked?'Valor estimado (opcional)':'Valor (R$)';};
   $('mfOk').onclick=async()=>{
     const dia=parseInt($('mfDia').value,10);
     if(!(dia>=1&&dia<=31)){toast('Dia inválido');return;}
     try{
       await api('/fixas/'+id,{method:'PUT',body:JSON.stringify({
         nome:$('mfNome').value.trim(),valor:lerValor($('mfValor').value),
-        dia_vencimento:dia,categoria:$('mfCategoria').value.trim()||'fixas'
+        dia_vencimento:dia,categoria:$('mfCategoria').value.trim()||'fixas',
+        valor_variavel:$('mfVariavel').checked
       })});
       fecharModal();invalidar();toast('Atualizada ✓');renderFixas();
     }catch(e){erroUI(e);}
