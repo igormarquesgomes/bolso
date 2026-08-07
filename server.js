@@ -53,6 +53,22 @@ function vencimentoNoMes(ref, dia) { // clampa dia 31 em meses curtos
 }
 // data 'YYYY-MM-DD' → timestamptz ao meio-dia de Brasília (evita virar de dia)
 const tsDeData = d => `${d}T12:00:00-03:00`;
+// início do dia (00:00 BRT) de 'YYYY-MM-DD' como instante UTC, p/ limites de intervalo
+const boundTs = d => new Date(`${d}T00:00:00-03:00`).toISOString();
+const addDia = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+
+// Ciclo da fatura do cartão que FECHA no mês `ref`, dado o dia de fechamento D e
+// vencimento V. Contém compras de (D+1 do mês anterior) até (D de ref), inclusive.
+function faturaCiclo(ref, D, V) {
+  const fecha = vencimentoNoMes(ref, D);              // clampa D em meses curtos
+  const prevClose = vencimentoNoMes(refMenos(ref, 1), D);
+  const dueRef = V >= D ? ref : refMenos(ref, -1);    // vence no mesmo mês do fechamento (V>D) ou no seguinte
+  return {
+    fecha, vence: vencimentoNoMes(dueRef, V),
+    ini: boundTs(addDia(prevClose, 1)),               // dia seguinte ao fechamento anterior, 00:00
+    fim: boundTs(addDia(fecha, 1))                    // dia seguinte ao fechamento, 00:00 (exclusivo)
+  };
+}
 
 // ─── Auth simples ────────────────────────────────────────────
 function auth(req, res, next) {
@@ -167,6 +183,8 @@ app.put('/bolso/perfil', auth, async (req, res) => {
     if (b.objetivo_nome !== undefined) patch.objetivo_nome = b.objetivo_nome || null;
     if (b.objetivo_valor !== undefined) patch.objetivo_valor = b.objetivo_valor === null ? null : num(b.objetivo_valor);
     if (b.objetivo_prazo !== undefined) patch.objetivo_prazo = dataValida(b.objetivo_prazo) ? b.objetivo_prazo : null;
+    if (b.cartao_fechamento !== undefined) { const d = parseInt(b.cartao_fechamento, 10); if (d >= 1 && d <= 31) patch.cartao_fechamento = d; }
+    if (b.cartao_vencimento !== undefined) { const d = parseInt(b.cartao_vencimento, 10); if (d >= 1 && d <= 31) patch.cartao_vencimento = d; }
     const atual = await sbJson('bolso_perfil?limit=1');
     if (!atual[0]) return res.status(500).json({ error: 'Perfil não inicializado' });
     const rows = await sbJson(`bolso_perfil?id=eq.${atual[0].id}`, {
@@ -457,23 +475,33 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     const refIni6 = refMenos(ref, 5);                 // 6 meses incluindo o ref
     const [ini6] = rangeMes(refIni6);
 
-    const [perfilRows, gastosMes, entradasMes, fixasMes, reservaTudo, gastos6, entradas6, pagamentos6] = await Promise.all([
-      sbJson('bolso_perfil?limit=1'),
+    // Perfil primeiro: dá o dia de fechamento p/ montar o ciclo da fatura (que cruza meses)
+    const perfilRows = await sbJson('bolso_perfil?limit=1');
+    const perfil = perfilRows[0] || {};
+    const cartaoFech = num(perfil.cartao_fechamento) || 5;
+    const cartaoVenc = num(perfil.cartao_vencimento) || 10;
+    const ciclo = faturaCiclo(ref, cartaoFech, cartaoVenc);
+
+    const [gastosMes, entradasMes, fixasMes, reservaTudo, gastos6, entradas6, pagamentos6, creditoCiclo] = await Promise.all([
       sbJson(`bolso_gastos?ts=gte.${ini}&ts=lt.${fim}&select=id,ts,valor,categoria,descricao,forma_pagamento,itens&order=ts.desc&limit=1000`),
       sbJson(`bolso_entradas?ts=gte.${ini}&ts=lt.${fim}&select=valor,tipo`),
       fixasDoMes(ref),
       sbJson('bolso_reserva?select=tipo,valor,ts'),
-      sbJson(`bolso_gastos?ts=gte.${ini6}&ts=lt.${fim}&select=ts,valor`),
+      sbJson(`bolso_gastos?ts=gte.${ini6}&ts=lt.${fim}&select=ts,valor,forma_pagamento`),
       sbJson(`bolso_entradas?ts=gte.${ini6}&ts=lt.${fim}&select=ts,valor`),
-      sbJson(`bolso_fixas_pagamentos?mes_referencia=gte.${refIni6}-01&mes_referencia=lte.${ref}-01&select=mes_referencia,valor_pago`)
+      sbJson(`bolso_fixas_pagamentos?mes_referencia=gte.${refIni6}-01&mes_referencia=lte.${ref}-01&select=mes_referencia,valor_pago`),
+      sbJson(`bolso_gastos?forma_pagamento=eq.credito&ts=gte.${ciclo.ini}&ts=lt.${ciclo.fim}&select=valor&limit=2000`)
     ]);
 
-    const perfil = perfilRows[0] || {};
     const soma = (arr, f = r => num(r.valor)) => arr.reduce((s, r) => s + f(r), 0);
     const mesDoTs = ts => new Date(new Date(ts).getTime() - tzMs).toISOString().slice(0, 7);
+    const ehCredito = g => g.forma_pagamento === 'credito';
 
     const totEntradas = soma(entradasMes);
-    const totGastos = soma(gastosMes);
+    const totGastos = soma(gastosMes);                          // todos (visão de consumo)
+    const totGastosCredito = soma(gastosMes.filter(ehCredito)); // vão pra fatura, não pro caixa
+    const totGastosCaixa = totGastos - totGastosCredito;        // dinheiro que realmente saiu (débito/pix/etc.)
+    const faturaEmFormacao = soma(creditoCiclo);                // compras no crédito do ciclo que fecha em ref
     const fixasAbertas = fixasMes.filter(f => f.status !== 'paga');
     const totFixasAberto = soma(fixasAbertas, f => num(f.estimativa)); // variáveis entram pela estimativa
     const totFixasPago = soma(fixasMes.filter(f => f.status === 'paga'), f => num(f.valor_pago ?? f.valor));
@@ -484,9 +512,10 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     const guardadoMes = aportesMes - resgatesMes;
     const saldoReservaTotal = soma(reservaTudo, r => r.tipo === 'aporte' ? num(r.valor) : -num(r.valor));
 
-    // Saldo livre: o que ainda dá pra gastar no mês.
-    // Fixas pagas também saem (dinheiro que já foi), além do previsto em aberto.
-    const saldoLivre = totEntradas + resgatesMes - totGastos - totFixasPago - totFixasAberto - aportesMes;
+    // Saldo livre: o que ainda dá pra gastar no mês. Compras no crédito NÃO entram
+    // aqui — quem pesa é a fatura (lançada como fixa). Só o gasto no caixa (débito/
+    // pix/dinheiro/boleto) e as fixas (pagas + em aberto) reduzem o saldo.
+    const saldoLivre = totEntradas + resgatesMes - totGastosCaixa - totFixasPago - totFixasAberto - aportesMes;
 
     // Gráficos — categorias "explodidas": item classificado conta na própria
     // categoria; o restante do gasto cai na categoria geral dele
@@ -509,7 +538,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     const serie6 = meses6.map(m => ({ ref: m, entrou: 0, gastou: 0, guardou: 0 }));
     const porRef = Object.fromEntries(serie6.map(s => [s.ref, s]));
     for (const e of entradas6) { const s = porRef[mesDoTs(e.ts)]; if (s) s.entrou += num(e.valor); }
-    for (const g of gastos6) { const s = porRef[mesDoTs(g.ts)]; if (s) s.gastou += num(g.valor); }
+    for (const g of gastos6) { const s = porRef[mesDoTs(g.ts)]; if (s && !ehCredito(g)) s.gastou += num(g.valor); } // crédito conta via fatura
     for (const p of pagamentos6) { const s = porRef[p.mes_referencia.slice(0, 7)]; if (s) s.gastou += num(p.valor_pago); }
     for (const r of reservaTudo) {
       const s = porRef[mesDoTs(r.ts)];
@@ -517,7 +546,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
     }
 
     const totFixasMes = totFixasPago + totFixasAberto;
-    const sobra = Math.max(totEntradas - totGastos - totFixasMes - guardadoMes, 0);
+    const sobra = Math.max(totEntradas - totGastosCaixa - totFixasMes - guardadoMes, 0);
 
     const meta = num(perfil.meta_mensal);
     res.json({
@@ -526,7 +555,9 @@ app.get('/bolso/resumo', auth, async (req, res) => {
       perfil,
       totais: {
         entradas: totEntradas,
-        gastos: totGastos,
+        gastos: totGastosCaixa,          // dinheiro que saiu do caixa (sem crédito)
+        gastos_credito: totGastosCredito, // compras no crédito do mês (entram na fatura)
+        gastos_total: totGastos,          // consumo total (caixa + crédito)
         fixas_pago: totFixasPago,
         fixas_aberto: totFixasAberto,
         aportes: aportesMes,
@@ -534,6 +565,11 @@ app.get('/bolso/resumo', auth, async (req, res) => {
         guardado_mes: guardadoMes,
         saldo_livre: saldoLivre,
         falta_meta: Math.max(meta - guardadoMes, 0)
+      },
+      fatura_cartao: {
+        fechamento: cartaoFech, vencimento: cartaoVenc,
+        fecha: ciclo.fecha, vence: ciclo.vence,
+        total: faturaEmFormacao   // compras no crédito do ciclo que fecha neste mês
       },
       reserva: {
         saldo_total: saldoReservaTotal,
@@ -553,7 +589,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
         formas: Object.entries(porForma).map(([forma, total]) => ({ forma, total }))
           .sort((a, b) => b.total - a.total),
         seis_meses: serie6,
-        composicao: { fixas: totFixasMes, variaveis: totGastos, guardado: Math.max(guardadoMes, 0), sobra }
+        composicao: { fixas: totFixasMes, variaveis: totGastosCaixa, guardado: Math.max(guardadoMes, 0), sobra }
       },
       gastos_mes: gastosMes
     });
@@ -564,7 +600,7 @@ app.get('/bolso/resumo', auth, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
-    v: 5,
+    v: 6,
     anthropic: !!ANTHROPIC_API_KEY,
     supabase: !!(BOLSO_SUPABASE_URL && BOLSO_SUPABASE_KEY),
     senha: !!BOLSO_SENHA

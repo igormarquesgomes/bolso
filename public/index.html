@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- bolso v5 · fixas de valor variável -->
+<!-- bolso v6 · cartão de crédito por ciclo de fatura -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Bolso — seu assessor de gastos</title>
@@ -337,6 +337,13 @@ details.dobra .corpo{background:var(--card);border:1px solid var(--linha);border
       <div class="campo"><label>Quero guardar por mês (R$)</label><input id="pMeta" inputmode="decimal"></div>
       <button class="btn btn-verde btn-mini" id="pSalvar1">Salvar</button>
     </div>
+    <h2>Cartão de crédito</h2>
+    <div class="card">
+      <div class="campo"><label>Dia que a fatura fecha</label><input id="pCartaoFech" type="number" min="1" max="31" inputmode="numeric"></div>
+      <div class="campo"><label>Dia que a fatura vence</label><input id="pCartaoVenc" type="number" min="1" max="31" inputmode="numeric"></div>
+      <div style="font-size:11px;color:var(--dim);margin:-2px 0 10px">Compras no crédito até o fechamento entram na fatura desse ciclo. A fatura você lança como despesa fixa (valor variável).</div>
+      <button class="btn btn-verde btn-mini" id="pSalvarCartao">Salvar cartão</button>
+    </div>
     <h2>Objetivo</h2>
     <div class="card">
       <div class="campo"><label>Nome</label><input id="pObjNome" placeholder="ex: reserva de emergência"></div>
@@ -541,18 +548,31 @@ async function renderResumo(){
     </div>`;
   }
 
+  const fc=r.fatura_cartao||null;
+  let faturaHtml='';
+  if(fc&&fc.total>0){
+    faturaHtml=`<div class="card" style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:22px">💳</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px"><b>Fatura do cartão</b> <span style="color:var(--dim);font-size:11px">fecha ${dataBR(fc.fecha)} · vence ${dataBR(fc.vence)}</span></div>
+        <div style="font-size:10.5px;color:var(--dim)">compras no crédito deste ciclo — entram na fatura, não no saldo livre</div>
+      </div>
+      <strong class="num" style="font-size:16px">${fmt(fc.total)}</strong>
+    </div>`;
+  }
   alvo.innerHTML=`
     <div class="card card-hero">
       <small>Saldo livre de ${nomeMes(ref)}</small>
       <div class="grande num ${corSaldo}">${fmt(t.saldo_livre)}</div>
-      <div style="font-size:11px;color:var(--dim);margin-top:4px">entradas − gastos − fixas − guardado</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:4px">entra − sai do caixa − fixas − guardado · (crédito conta na fatura)</div>
     </div>
     <div class="grade2">
       <div class="mini"><small>Entrou</small><strong class="num pos">${fmt(t.entradas)}</strong></div>
-      <div class="mini"><small>Gastou</small><strong class="num neg">${fmt(t.gastos+t.fixas_pago)}</strong></div>
+      <div class="mini"><small>Saiu do caixa</small><strong class="num neg">${fmt(t.gastos+t.fixas_pago)}</strong></div>
       <div class="mini"><small>Guardado no mês</small><strong class="num">${fmt(t.guardado_mes)}</strong></div>
       <div class="mini"><small>Falta pra meta</small><strong class="num ${t.falta_meta>0?'atencao':'pos'}">${t.falta_meta>0?fmt(t.falta_meta):'Meta ✓'}</strong></div>
     </div>
+    ${faturaHtml}
     ${objetivoHtml}
     ${contasHtml}
     <h2>Para onde foi o dinheiro</h2>
@@ -1072,6 +1092,8 @@ async function renderPerfil(){
       $('pObjNome').value=cachePerfil.objetivo_nome||'';
       $('pObjValor').value=cachePerfil.objetivo_valor?String(Number(cachePerfil.objetivo_valor).toFixed(2)).replace('.',','):'';
       $('pObjPrazo').value=cachePerfil.objetivo_prazo||'';
+      $('pCartaoFech').value=cachePerfil.cartao_fechamento||5;
+      $('pCartaoVenc').value=cachePerfil.cartao_vencimento||10;
     }
   }
   if(!cacheEntradas){
@@ -1105,6 +1127,14 @@ $('pSalvar2').onclick=async()=>{
       objetivo_prazo:$('pObjPrazo').value||null
     })});
     invalidar();toast('Objetivo salvo ✓');
+  }catch(e){erroUI(e);}
+};
+$('pSalvarCartao').onclick=async()=>{
+  const fech=parseInt($('pCartaoFech').value,10),venc=parseInt($('pCartaoVenc').value,10);
+  if(!(fech>=1&&fech<=31)||!(venc>=1&&venc<=31)){toast('Dias entre 1 e 31');return;}
+  try{
+    cachePerfil=await api('/perfil',{method:'PUT',body:JSON.stringify({cartao_fechamento:fech,cartao_vencimento:venc})});
+    invalidar();toast('Cartão salvo ✓');
   }catch(e){erroUI(e);}
 };
 $('eSalvar').onclick=async()=>{
